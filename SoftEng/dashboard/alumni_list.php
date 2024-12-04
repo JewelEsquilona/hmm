@@ -1,33 +1,55 @@
 <?php
-$connectionFile = '../connection.php';
-if (!file_exists($connectionFile)) {
-    die("Connection file not found.");
-}
-include($connectionFile);
-if (!$con) {
-    die("Database connection failed: " . $con->errorInfo()[2]);
-}
-try {
-    $statement = $con->query("
-        SELECT 
-        a.*, 
-        e.Employment, 
-        e.Employment_Status, 
-        e.Present_Occupation, 
-        e.Name_of_Employer, 
-        e.Address_of_Employer, 
-        e.Number_of_Years_in_Present_Employer, 
-        e.Type_of_Employer, 
-        e.Major_Line_of_Business,
-        CONCAT('AL', LPAD(a.Alumni_ID_Number, 5, '0')) AS Alumni_ID_Number_Format
-    FROM `2024-2025` a
-    LEFT JOIN `2024-2025_ed` e 
-        ON a.`Alumni_ID_Number` = e.`Alumni_ID_Number`
-    WHERE e.`Alumni_ID_Number` IS NULL OR e.`ID` = (SELECT MAX(`ID`) FROM `2024-2025_ed` WHERE `Alumni_ID_Number` = a.`Alumni_ID_Number`)
-    ");
+include '../connection.php';
 
+// Fetch distinct colleges for the dropdown
+try {
+    $collegesQuery = "SELECT DISTINCT college FROM courses";
+    $collegesStmt = $con->prepare($collegesQuery);
+    $collegesStmt->execute();
+    $existingColleges = $collegesStmt->fetchAll(PDO::FETCH_COLUMN);
 } catch (PDOException $e) {
-    die("Query failed: " . $e->getMessage());
+    die("Database query failed: " . $e->getMessage());
+}
+
+// Handle form submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Collect and sanitize input data
+    $id = $_POST['id'] ?? null;
+    $role = $_POST['role'] ?? null;
+    $email = $_POST['email'] ?? null;
+    $password = $_POST['pass'] ?? null;
+    $confirmPassword = $_POST['conPass'] ?? null;
+    $college = $_POST['college'] ?? null; // Get college from form
+    $department = $_POST['department'] ?? null; // Get department from form
+
+    // Debugging: Check if data is received
+    error_log("Role: $role, Email: $email, College: $college, Department: $department");
+
+    // Check if passwords match
+    if ($password !== $confirmPassword) {
+        echo "<script>alert('Passwords do not match!');</script>";
+    } else {
+        // Hash the password
+        $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+
+        // Insert into the database
+        $stmt = $con->prepare("INSERT INTO users (email, password, role, college, department) VALUES (?, ?, ?, ?, ?)");
+
+        try {
+            if ($stmt->execute([$email, $hashedPassword, $role, $college, $department])) {
+                // Redirect to index.php after successful registration
+                echo "<script>
+                        alert('Registration successful! Redirecting to login page.');
+                        window.location.href='index.php';
+                      </script>";
+                exit; // Ensure no further code is executed
+            } else {
+                echo "<script>alert('Registration failed! Please try again.');</script>";
+            }
+        } catch (PDOException $e) {
+            echo "<script>alert('Error: " . $e->getMessage() . "');</script>";
+        }
+    }
 }
 ?>
 
@@ -36,96 +58,183 @@ try {
 
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alumni List</title>
+    <title>Multi-Step Signup Form</title>
     <link rel="stylesheet" href="../assets/css/bootstrap.css">
     <link rel="stylesheet" href="../assets/css/style.css">
-    <link rel="stylesheet" href="https://pro.fontawesome.com/releases/v5.10.0/css/all.css" crossorigin="anonymous" />
 </head>
-<body class="bg-content">
-    <main class="dashboard d-flex">
-        <?php include "component/sidebar.php"; ?>
-        <div class="container-fluid px">
-            <?php include "component/header.php"; ?>
-            <div class="alumni-list-header d-flex justify-content-between align-items-center py-2">
-                <div class="title h6 fw-bold">Alumni List</div>
-                <div class="btn-add d-flex gap-3 align-items-center">
-                    <div class="short">
-                        <i class="far fa-sort"></i>
-                    </div>
-                    <?php include 'alumni_add.php'; ?>
+
+<body class="bg-sign-in">
+    <form id="signup" method="POST" action="">
+        <div class="container">
+            <h2 class="sign-in">Sign Up</h2>
+            <div class="d-flex justify-content-center">
+                <p>Enter your credentials to create your account</p>
+            </div>
+            <input type="hidden" name="id" value="<?php echo htmlspecialchars($id); ?>">
+            <div class="mb-3"></div>
+
+            <div class="steps">
+                <div class="step active"></div>
+                <div class="step"></div>
+            </div>
+
+            <!-- Slide 1: Role Selection -->
+            <div class="slider active" id="step1">
+                <h5>Please Select a Role</h5>
+                <div class="radio-options">
+                    <label><input type="radio" name="role" value="Admin" required> Admin</label>
+                    <label><input type="radio" name="role" value="Registrar"> Registrar</label>
+                    <label><input type="radio" name="role" value="Dean"> Dean</label>
+                    <label><input type="radio" name="role" value="Program Chair"> Program Chair</label>
+                    <label><input type="radio" name="role" value="Alumni"> Alumni</label>
+                </div>
+                <div class="text-center">
+                    <button type="button" class="next continue-button">Continue</button>
+                </div>
+                <div class="continue-sign-in-text">
+                    <p class="mt-4">Already have an account? <a href="index.php">Sign In</a></p>
                 </div>
             </div>
-            <div class="table-responsive table-container">
-                <table class="table alumni_list table-borderless">
-                    <thead>
-                        <tr class="align-middle">
-                            <th>ID</th>
-                            <th>Alumni ID Number</th>
-                            <th>Student Number</th>
-                            <th>Last Name</th>
-                            <th>First Name</th>
-                            <th>Middle Name</th>
-                            <th>College</th>
-                            <th>Department</th>
-                            <th>Section</th>
-                            <th>Year Graduated</th>
-                            <th>Contact Number</th>
-                            <th>Personal Email</th>
-                            <th>Employment</th>
-                            <th>Employment Status</th>
-                            <th>Present Occupation</th>
-                            <th>Name of Employer</th>
-                            <th>Address of Employer</th>
-                            <th>Number of Years in Present Employer</th>
-                            <th>Type of Employer</th>
-                            <th>Major Line of Business</th>
-                            <th class="opacity">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if ($statement->rowCount() > 0): ?>
-                            <?php while ($row = $statement->fetch(PDO::FETCH_ASSOC)): ?>
-                                <tr>
-                                    <td><?php echo htmlspecialchars($row['ID']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['Alumni_ID_Number_Format']); ?></td> <!-- Updated to use formatted ID -->
-                                    <td><?php echo htmlspecialchars($row['Student_Number']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['Last_Name']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['First_Name']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['Middle_Name']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['College']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['Department']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['Section']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['Year_Graduated']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['Contact_Number']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['Personal_Email']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['Employment']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['Employment_Status']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['Present_Occupation']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['Name_of_Employer']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['Address_of_Employer']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['Number_of_Years_in_Present_Employer']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['Type_of_Employer']); ?></td>
-                                    <td><?php echo htmlspecialchars($row['Major_Line_of_Business']); ?></td>
-                                    <td>
-                                        <a href="alumni_edit.php?Alumni_ID_Number=<?php echo $row['Alumni_ID_Number'] ?>"><i class="far fa-pen"></i></a>
-                                        <a href="alumni_process.php?action=delete&alumni_id=<?php echo $row['Alumni_ID_Number']; ?>"><i class="far fa-trash"></i></a>
-                                    </td>
-                                </tr>
-                            <?php endwhile; ?>
-                        <?php else: ?>
-                            <tr>
-                                <td colspan="20" class="text-center">No alumni records found.</td>
-                            </tr>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
+
+            <!-- Slide 2: Account Information -->
+            <div class="slider" id="step2" style="display: none;">
+                <div id="collegeDepartmentInfo" style="display: none;">
+                    <label for="college">Select College:</label>
+                    <select id="college" name="college">
+                        <option value="" selected>Select College</option>
+                        <?php foreach ($existingColleges as $college): ?>
+                            <option value="<?= htmlspecialchars($college) ?>"><?= htmlspecialchars($college) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+
+                    <div id="departmentContainer" style="display: none;">
+                        <label for="department">Select Department:</label>
+                        <select id="department" name="department">
+                            <option value="" selected>Select Department</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="accountInfo">
+                    <label for="email">Email:</label>
+                    <input type="email" id="email" name="email" required autocomplete="email">
+                    <label for="pass">Password:</label>
+                    <input type="password" id="pass" name="pass" required autocomplete="new-password">
+                    <label for="conPass">Confirm Password:</label>
+                    <input type="password" id="conPass" name="conPass" required autocomplete="new-password">
+                </div>
+
+                <div class="button-container">
+                    <button type="button" class="back">Back</button>
+                    <button type="submit" class="submit-button">Submit</button>
+                </div>
             </div>
         </div>
-    </main>
-    <script src="../assets/js/script.js"></script>
+    </form>
+
     <script src="../assets/js/bootstrap.bundle.js"></script>
+    <script src="../assets/js/validation.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const slides = document.querySelectorAll('.slider');
+            const steps = document.querySelectorAll('.step');
+            let currentSlide = 0;
+
+            function showSlide(index) {
+                slides.forEach((slide, i) => {
+                    slide.style.display = (i === index) ? 'block' : 'none';
+                });
+                steps.forEach((step, i) => {
+                    step.classList.toggle('active', i <= index);
+                });
+            }
+
+            // Handle role selection
+            document.querySelectorAll('input[name="role"]').forEach(radio => {
+                radio.addEventListener('change', function() {
+                    const selectedRole = this.value;
+                    if (selectedRole === 'Alumni') {
+                        window.location.href = 'register.php'; // Redirect to register page
+                    } else {
+                        document.getElementById('collegeDepartmentInfo').style.display =
+                            (selectedRole === 'Dean' || selectedRole === 'Program Chair') ? 'block' : 'none';
+                    }
+                });
+            });
+
+            // Show next slide
+            document.querySelector('.next').addEventListener('click', function() {
+                if (currentSlide === 0) {
+                    currentSlide++;
+                    showSlide(currentSlide);
+                }
+            });
+
+            // Show previous slide
+            document.querySelector('.back').addEventListener('click', function() {
+                if (currentSlide === 1) {
+                    currentSlide--;
+                    showSlide(currentSlide);
+                }
+            });
+
+            // Fetch departments based on selected college
+            document.getElementById('college').addEventListener('change', function() {
+                const college = this.value;
+                const departmentSelect = document.getElementById('department');
+
+                // Clear previous departments
+                departmentSelect.innerHTML = '<option value="" selected>Select Department</option>';
+
+                if (college) {
+                    fetch(`../dashboard/get_departments.php?college=${encodeURIComponent(college)}`)
+                        .then(response => response.json())
+                        .then(data => {
+                            data.forEach(department => {
+                                const option = document.createElement('option');
+                                option.value = department.department; // Ensure this matches your database field
+                                option.textContent = department.department; // Ensure this matches your database field
+                                departmentSelect.appendChild(option);
+                            });
+                            // Show the department container only for Program Chair
+                            const role = document.querySelector('input[name="role"]:checked');
+                            if (role && role.value === 'Program Chair') {
+                                document.getElementById('departmentContainer').style.display = 'block';
+                            }
+                        })
+                        .catch(error => console.error('Error fetching departments:', error));
+                } else {
+                    document.getElementById('departmentContainer').style.display = 'none'; // Hide if no college selected
+                }
+            });
+
+            // Prevent form submission if required fields are not filled
+            document.getElementById('signup').addEventListener('submit', function(event) {
+                const college = document.getElementById('college').value;
+                const departmentContainer = document.getElementById('departmentContainer');
+                const department = departmentContainer.style.display === 'block' ? document.getElementById('department').value : '';
+
+                // Check if college is selected only if it is visible
+                if (document.getElementById('collegeDepartmentInfo').style.display === 'block' && !college) {
+                    event.preventDefault(); // Prevent form submission
+                    alert('Please select a college.');
+                    document.getElementById('college').focus(); // Focus on the college select
+                }
+
+                // Additional checks for department if needed
+                if (departmentContainer.style.display === 'block' && !department) {
+                    event.preventDefault(); // Prevent form submission
+                    alert('Please select a department.');
+                    document.getElementById('department').focus(); // Focus on the department select
+                }
+
+                // Debugging: Log the visibility of college and department
+                console.log('College selected:', college);
+                console.log('Department selected:', department);
+            });
+        });
+    </script>
 </body>
 
 </html>
